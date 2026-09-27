@@ -1,0 +1,124 @@
+name: Release
+
+# Every push to main builds and tests all platforms. A GitHub Release is
+# published only when the version in Cargo.toml has no `v<version>` tag yet,
+# so bump `version` in Cargo.toml to cut a new release.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  BIN: mal-char-crop
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      should_release: ${{ steps.version.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            echo "Tag v$version already exists, release will be skipped"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            # Oldest supported runner: binaries link against an older glibc.
+            os: ubuntu-22.04
+            targets: x86_64-unknown-linux-gnu
+          - name: windows-x86_64
+            os: windows-latest
+            targets: x86_64-pc-windows-msvc
+          - name: macos-universal
+            os: macos-latest
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    env:
+      ARCHIVE: mal-char-crop-v${{ needs.meta.outputs.version }}-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo build --release --locked --target x86_64-unknown-linux-gnu
+          mkdir -p "$ARCHIVE"
+          cp "target/x86_64-unknown-linux-gnu/release/$BIN" LICENSE README.md "$ARCHIVE/"
+          tar -czf "$ARCHIVE.tar.gz" "$ARCHIVE"
+
+      - name: Build (macOS universal)
+        if: runner.os == 'macOS'
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+          mkdir -p "$ARCHIVE"
+          lipo -create -output "$ARCHIVE/$BIN" \
+            "target/aarch64-apple-darwin/release/$BIN" \
+            "target/x86_64-apple-darwin/release/$BIN"
+          cp LICENSE README.md "$ARCHIVE/"
+          tar -czf "$ARCHIVE.tar.gz" "$ARCHIVE"
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build --release --locked --target x86_64-pc-windows-msvc
+          New-Item -ItemType Directory -Path $env:ARCHIVE | Out-Null
+          Copy-Item "target/x86_64-pc-windows-msvc/release/$env:BIN.exe", LICENSE, README.md -Destination $env:ARCHIVE
+          Compress-Archive -Path $env:ARCHIVE -DestinationPath "$env:ARCHIVE.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ env.ARCHIVE }}.*
+          if-no-files-found: error
+
+  release:
+    needs: [meta, build]
+    if: needs.meta.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.meta.outputs.version }}
+          name: v${{ needs.meta.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: dist/*

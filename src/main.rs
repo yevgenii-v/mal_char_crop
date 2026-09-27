@@ -1,3 +1,6 @@
+// No console window for release builds on Windows.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod clipboard;
 mod crop;
@@ -10,11 +13,13 @@ mod tab;
 use eframe::egui;
 
 /// Set on the re-spawned copy so it does not detach again.
+#[cfg(unix)]
 const DETACHED_ENV: &str = "MAL_CROP_DETACHED";
 
 /// When a release build is started from a terminal, re-launches itself in a
 /// separate process group with no terminal I/O and exits, so closing the
 /// terminal does not kill the window. Returns `true` if this process should exit.
+#[cfg(unix)]
 fn detach_from_terminal() -> bool {
     use std::io::IsTerminal;
     use std::os::unix::process::CommandExt;
@@ -38,12 +43,19 @@ fn detach_from_terminal() -> bool {
         .is_ok()
 }
 
+/// Windows release builds have no console to detach from.
+#[cfg(not(unix))]
+fn detach_from_terminal() -> bool {
+    false
+}
+
 fn main() -> eframe::Result {
     if detach_from_terminal() {
         return Ok(());
     }
     let initial = std::env::args_os().skip(1).map(std::path::PathBuf::from).collect();
 
+    #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("MAL Crop 9:14")
@@ -54,6 +66,7 @@ fn main() -> eframe::Result {
     };
     // winit has no file drag-and-drop on Wayland, so run through XWayland
     // unless native Wayland is explicitly requested.
+    #[cfg(target_os = "linux")]
     if std::env::var_os("MAL_CROP_WAYLAND").is_none() {
         options.event_loop_builder = Some(Box::new(|builder| {
             use winit::platform::x11::EventLoopBuilderExtX11;

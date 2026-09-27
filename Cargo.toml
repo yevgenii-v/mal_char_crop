@@ -8,6 +8,9 @@ arboard = { version = "3.6.1", default-features = false, features = ["image-data
 eframe = { version = "0.36.2", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }
 image = { version = "0.25.10", default-features = false, features = ["bmp", "dds", "exr", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"] }
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal", "pollster"] }
+
+# Only needed to force the X11 backend (see main.rs).
+[target.'cfg(target_os = "linux")'.dependencies]
 winit = { version = "0.30", default-features = false, features = ["x11"] }
 
 [profile.release]

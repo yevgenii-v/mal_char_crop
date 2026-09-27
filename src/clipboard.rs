@@ -1,7 +1,5 @@
 //! Reading images from the system clipboard.
 
-use std::ffi::OsString;
-use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
 use image::RgbaImage;
@@ -50,10 +48,27 @@ pub fn read() -> Result<Pasted, PasteError> {
 fn parse_paths(text: &str) -> impl Iterator<Item = PathBuf> + '_ {
     text.lines().map(str::trim).filter(|l| !l.is_empty()).map(|line| {
         match line.strip_prefix("file://") {
-            Some(uri) => PathBuf::from(OsString::from_vec(percent_decode(uri))),
+            Some(uri) => uri_to_path(uri),
             None => PathBuf::from(line),
         }
     })
+}
+
+#[cfg(unix)]
+fn uri_to_path(uri: &str) -> PathBuf {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    PathBuf::from(OsString::from_vec(percent_decode(uri)))
+}
+
+/// `file:///C:/x.png` carries a slash before the drive letter.
+#[cfg(not(unix))]
+fn uri_to_path(uri: &str) -> PathBuf {
+    let path = String::from_utf8_lossy(&percent_decode(uri)).into_owned();
+    match path.as_bytes() {
+        [b'/', drive, b':', ..] if drive.is_ascii_alphabetic() => PathBuf::from(&path[1..]),
+        _ => PathBuf::from(path),
+    }
 }
 
 fn percent_decode(s: &str) -> Vec<u8> {
