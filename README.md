@@ -1,7 +1,7 @@
 # mal-char-crop
 
-A small desktop tool for cropping images to a 9:14 aspect ratio (character images for MyAnimeList).
-Open, paste or drag-and-drop images, frame and rotate them, then save the crop.
+A lightweight desktop tool for quickly preparing character images for MyAnimeList.
+Crop, rotate, position, and save images in the required 9:14 aspect ratio.
 
 ## Download
 
