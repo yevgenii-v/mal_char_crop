@@ -20,8 +20,8 @@ pub struct PendingDialog {
 }
 
 impl PendingDialog {
-    pub fn open(ctx: &egui::Context, dir: Option<&Path>) -> Self {
-        let dlg = with_dir(rfd::FileDialog::new(), dir).add_filter("Зображення", OPEN_EXTENSIONS);
+    pub fn open(ctx: &egui::Context, dir: Option<&Path>, filter_name: &str) -> Self {
+        let dlg = with_dir(rfd::FileDialog::new(), dir).add_filter(filter_name, OPEN_EXTENSIONS);
         Self::spawn(ctx, DialogKind::Open, move || dlg.pick_files())
     }
 

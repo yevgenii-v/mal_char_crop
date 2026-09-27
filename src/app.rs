@@ -6,12 +6,11 @@ use image::RgbaImage;
 use crate::clipboard::{self, Pasted};
 use crate::crop::{self, OutSize};
 use crate::dialog::{DialogKind, PendingDialog};
+use crate::i18n::{Lang, Strings};
 use crate::imaging::{self, SaveFormat};
 use crate::tab::{Drag, Tab};
 
 const WARN: Color32 = Color32::from_rgb(230, 160, 60);
-const HELP: &str = "Колесо — розмір рамки · Ctrl+колесо — зум · Shift+колесо, [ ] — поворот · \
-    ПКМ/СКМ — зсув · F — вписати · стрілки — ±1px";
 /// Rotation per `[`/`]` press, and with Shift held.
 const ROTATE_STEP: f32 = 1.0;
 const ROTATE_FINE_STEP: f32 = 0.1;
@@ -35,7 +34,9 @@ pub struct App {
     drag: Drag,
     out: OutSize,
     dialog: Option<PendingDialog>,
-    status: String,
+    lang: Lang,
+    /// `None` shows the welcome hint.
+    status: Option<String>,
 }
 
 impl App {
@@ -47,12 +48,21 @@ impl App {
             drag: Drag::None,
             out: OutSize::Auto,
             dialog: None,
-            status: "Відкрийте зображення: Ctrl+O, перетягніть файл у вікно або Ctrl+V".into(),
+            lang: Lang::detect(),
+            status: None,
         };
         for p in initial {
             app.open_path(ctx, &p);
         }
         app
+    }
+
+    fn t(&self) -> &'static Strings {
+        self.lang.tr()
+    }
+
+    fn set_status(&mut self, s: impl Into<String>) {
+        self.status = Some(s.into());
     }
 
     fn tab(&self) -> Option<&Tab> {
@@ -107,7 +117,7 @@ impl App {
         }
         match imaging::load(path) {
             Ok((rgba, format)) => self.add_tab(ctx, rgba, Some(path.to_path_buf()), format),
-            Err(e) => self.status = format!("Не вдалося відкрити {}: {e}", path.display()),
+            Err(e) => self.set_status((self.t().open_failed)(&path.display(), &e)),
         }
     }
 
@@ -120,12 +130,12 @@ impl App {
     ) {
         let (w, h) = rgba.dimensions();
         if !crop::fits(w, h) {
-            self.status = format!("Зображення {w}×{h} замале для 9:14");
+            self.set_status((self.t().too_small)(w, h));
             return;
         }
         self.next_id += 1;
         let tab = Tab::new(ctx, self.next_id, rgba, path, format);
-        self.status = format!("{} — {w}×{h}", tab.name);
+        self.set_status(format!("{} — {w}×{h}", tab.name(self.t())));
         self.tabs.push(tab);
         self.active = self.tabs.len() - 1;
         self.drag = Drag::None;
@@ -139,13 +149,13 @@ impl App {
                     self.open_path(ctx, &p);
                 }
             }
-            Err(e) => self.status = e.to_string(),
+            Err(e) => self.set_status(e.message(self.t())),
         }
     }
 
     fn save_tab(&mut self, id: u64, path: PathBuf) {
         let Some(tab) = self.tabs.iter().find(|t| t.id == id) else {
-            self.status = "Вкладку вже закрито".into();
+            self.set_status(self.t().tab_closed);
             return;
         };
         // An unsupported or missing extension gets the tab's own format.
@@ -155,10 +165,11 @@ impl App {
         };
         let img = tab.render(self.out);
         let (w, h) = img.dimensions();
-        self.status = match imaging::save(&path, img, format) {
-            Ok(()) => format!("Збережено {w}×{h} → {}", path.display()),
-            Err(e) => format!("Помилка збереження: {e}"),
-        };
+        let t = self.t();
+        self.set_status(match imaging::save(&path, img, format) {
+            Ok(()) => (t.saved)(w, h, &path.display()),
+            Err(e) => (t.save_failed)(&e),
+        });
     }
 
     fn quick_save(&mut self, ctx: &egui::Context) {
@@ -175,7 +186,7 @@ impl App {
 
     fn open_dialog(&mut self, ctx: &egui::Context) {
         if self.dialog.is_none() {
-            self.dialog = Some(PendingDialog::open(ctx, self.dialog_dir()));
+            self.dialog = Some(PendingDialog::open(ctx, self.dialog_dir(), self.t().images));
         }
     }
 
@@ -266,11 +277,12 @@ impl App {
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        let t = self.t();
         ui.horizontal(|ui| {
-            if ui.button("Відкрити").on_hover_text("Ctrl+O").clicked() {
+            if ui.button(t.open).on_hover_text("Ctrl+O").clicked() {
                 self.run(&ctx, Command::Open);
             }
-            if ui.button("Вставити").on_hover_text("Ctrl+V").clicked() {
+            if ui.button(t.paste).on_hover_text("Ctrl+V").clicked() {
                 self.run(&ctx, Command::Paste);
             }
             ui.add_enabled_ui(self.tab().is_some(), |ui| {
@@ -278,42 +290,46 @@ impl App {
                     .tab()
                     .and_then(Tab::default_save_path)
                     .map_or("Ctrl+S".into(), |p| format!("Ctrl+S → {}", p.display()));
-                if ui.button("Зберегти").on_hover_text(hint).clicked() {
+                if ui.button(t.save).on_hover_text(hint).clicked() {
                     self.run(&ctx, Command::Save);
                 }
-                if ui.button("Зберегти як…").on_hover_text("Ctrl+Shift+S").clicked() {
+                if ui.button(t.save_as).on_hover_text("Ctrl+Shift+S").clicked() {
                     self.run(&ctx, Command::SaveAs);
                 }
             });
             ui.separator();
-            out_size_picker(ui, &mut self.out);
+            out_size_picker(ui, t, &mut self.out);
             if let Some(tab) = self.tabs.get_mut(self.active) {
                 ui.separator();
-                angle_picker(ui, tab);
+                angle_picker(ui, t, tab);
                 ui.separator();
-                crop_summary(ui, tab, self.out);
+                crop_summary(ui, t, tab, self.out);
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                lang_picker(ui, t, &mut self.lang);
+            });
         });
     }
 
     fn tab_bar(&mut self, ui: &mut egui::Ui) {
         let mut activate = None;
         let mut close = None;
+        let t = self.t();
         egui::ScrollArea::horizontal().show(ui, |ui| {
             ui.horizontal(|ui| {
                 for (i, tab) in self.tabs.iter().enumerate() {
                     let hover = tab
                         .path
                         .as_ref()
-                        .map_or(tab.name.clone(), |p| p.display().to_string());
-                    let resp = ui.selectable_label(i == self.active, &tab.name).on_hover_text(hover);
+                        .map_or(tab.name(t).to_owned(), |p| p.display().to_string());
+                    let resp = ui.selectable_label(i == self.active, tab.name(t)).on_hover_text(hover);
                     if resp.clicked() {
                         activate = Some(i);
                     }
                     if resp.middle_clicked() {
                         close = Some(i);
                     }
-                    if ui.small_button("×").on_hover_text("Закрити (Ctrl+W)").clicked() {
+                    if ui.small_button("×").on_hover_text(t.close_tab).clicked() {
                         close = Some(i);
                     }
                     ui.add_space(6.0);
@@ -335,15 +351,16 @@ impl eframe::App for App {
         self.poll_dialog(&ctx);
         self.handle_input(&ctx);
 
+        let t = self.t();
         egui::Panel::top("toolbar").show(ui, |ui| self.toolbar(ui));
         if !self.tabs.is_empty() {
             egui::Panel::top("tabs").show(ui, |ui| self.tab_bar(ui));
         }
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(&self.status);
+                ui.label(self.status.as_deref().unwrap_or(t.welcome));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.weak(HELP);
+                    ui.weak(t.help);
                 });
             });
         });
@@ -354,7 +371,7 @@ impl eframe::App for App {
                 ui.painter().text(
                     rect.center(),
                     egui::Align2::CENTER_CENTER,
-                    "Перетягніть зображення сюди",
+                    t.drop_here,
                     egui::FontId::proportional(20.0),
                     ui.visuals().weak_text_color(),
                 );
@@ -396,12 +413,24 @@ fn size_label(k: u32) -> String {
     format!("{w}×{h}")
 }
 
-fn out_size_picker(ui: &mut egui::Ui, out: &mut OutSize) {
-    ui.label("Розмір:");
+fn lang_picker(ui: &mut egui::Ui, t: &Strings, lang: &mut Lang) {
+    egui::ComboBox::from_id_salt("lang")
+        .selected_text(lang.native_name())
+        .show_ui(ui, |ui| {
+            for l in Lang::ALL {
+                ui.selectable_value(lang, l, l.native_name());
+            }
+        })
+        .response
+        .on_hover_text(t.language);
+}
+
+fn out_size_picker(ui: &mut egui::Ui, t: &Strings, out: &mut OutSize) {
+    ui.label(t.size);
     let mut auto = *out == OutSize::Auto;
-    ui.selectable_value(&mut auto, true, "Авто")
-        .on_hover_text(format!("Як вирізано, але не більше {}", size_label(crop::OUT_K_MAX)));
-    ui.selectable_value(&mut auto, false, "Фіксований");
+    ui.selectable_value(&mut auto, true, t.auto)
+        .on_hover_text((t.auto_hint)(&size_label(crop::OUT_K_MAX)));
+    ui.selectable_value(&mut auto, false, t.fixed);
     match (auto, *out) {
         (true, _) => *out = OutSize::Auto,
         (false, OutSize::Auto) => *out = OutSize::Fixed(crop::OUT_K_MIN),
@@ -418,7 +447,7 @@ fn out_size_picker(ui: &mut egui::Ui, out: &mut OutSize) {
                 Some((w / crop::RW as f64).round())
             }),
     )
-    .on_hover_text("Ширина кратна 9, висота кратна 14");
+    .on_hover_text(t.fixed_hint);
     for preset in [crop::OUT_K_MIN, crop::OUT_K_MAX] {
         if ui.selectable_label(*k == preset, size_label(preset)).clicked() {
             *k = preset;
@@ -426,19 +455,19 @@ fn out_size_picker(ui: &mut egui::Ui, out: &mut OutSize) {
     }
 }
 
-fn angle_picker(ui: &mut egui::Ui, tab: &mut Tab) {
-    ui.label("Кут:");
+fn angle_picker(ui: &mut egui::Ui, t: &Strings, tab: &mut Tab) {
+    ui.label(t.angle);
     let mut deg = tab.angle();
     let angle = egui::DragValue::new(&mut deg)
         .range(-180.0..=180.0)
         .speed(0.1)
         .fixed_decimals(1)
         .suffix("°");
-    let resp = ui.add(angle).on_hover_text("Поворот зображення за годинниковою стрілкою");
+    let resp = ui.add(angle).on_hover_text(t.angle_hint);
     if resp.changed() {
         tab.set_angle(deg);
     }
-    let quarter_turns = [("−90°", "Проти годинникової", -90.0), ("+90°", "За годинниковою", 90.0)];
+    let quarter_turns = [("−90°", t.ccw, -90.0), ("+90°", t.cw, 90.0)];
     for (label, hint, delta) in quarter_turns {
         if ui.small_button(label).on_hover_text(hint).clicked() {
             tab.rotate_by(delta);
@@ -450,22 +479,20 @@ fn angle_picker(ui: &mut egui::Ui, tab: &mut Tab) {
 }
 
 /// "Crop W×H → W×H", highlighted when the result will be upscaled or undersized.
-fn crop_summary(ui: &mut egui::Ui, tab: &Tab, out: OutSize) {
+fn crop_summary(ui: &mut egui::Ui, t: &Strings, tab: &Tab, out: OutSize) {
     let px = tab.pixels();
     let (ow, oh) = out.dims(px.k());
-    let text = format!("Кроп {}×{} → {ow}×{oh}", px.w, px.h);
+    let text = (t.crop)(px.w, px.h, ow, oh);
     let (min_w, _) = crop::frame_size(crop::OUT_K_MIN);
     if tab.has_gaps() {
-        let fill = if tab.format == SaveFormat::Png { "прозорими" } else { "чорними" };
-        ui.colored_label(WARN, text).on_hover_text(format!(
-            "Рамка заходить за край повернутого зображення — кути будуть {fill}"
-        ));
+        let hint = if tab.format == SaveFormat::Png { t.gaps_transparent } else { t.gaps_black };
+        ui.colored_label(WARN, text).on_hover_text(hint);
     } else if ow > px.w {
         ui.colored_label(WARN, text)
-            .on_hover_text("Кроп менший за вихідний розмір — буде збільшено");
+            .on_hover_text(t.upscaled);
     } else if ow < min_w {
         ui.colored_label(WARN, text)
-            .on_hover_text(format!("Менше за {}", size_label(crop::OUT_K_MIN)));
+            .on_hover_text((t.below_min)(&size_label(crop::OUT_K_MIN)));
     } else {
         ui.label(text);
     }

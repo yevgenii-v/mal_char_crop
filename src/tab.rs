@@ -10,6 +10,7 @@ use eframe::egui::{
 use image::RgbaImage;
 
 use crate::crop::{Crop, OutSize, PixelRect};
+use crate::i18n::Strings;
 use crate::imaging::{self, SaveFormat};
 use crate::rotation::Rotation;
 
@@ -90,7 +91,8 @@ struct Preview {
 
 pub struct Tab {
     pub id: u64,
-    pub name: String,
+    /// File name; `None` for a pasted image.
+    file_name: Option<String>,
     pub path: Option<PathBuf>,
     pub format: SaveFormat,
     pub rgba: RgbaImage,
@@ -116,14 +118,12 @@ impl Tab {
         // cropping always reads the original pixels.
         let max_side = ctx.input(|i| i.max_texture_side) as u32;
         let tex = texture(ctx, "image", &imaging::fit_within(&rgba, max_side));
-        let name = path
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .map_or("буфер обміну".into(), |n| n.to_string_lossy().into_owned());
+        let file_name =
+            path.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned());
         let (w, h) = rgba.dimensions();
         Self {
             id,
-            name,
+            file_name,
             path,
             format,
             rgba,
@@ -134,6 +134,10 @@ impl Tab {
             preview: None,
             changed_at: None,
         }
+    }
+
+    pub fn name<'a>(&'a self, t: &'a Strings) -> &'a str {
+        self.file_name.as_deref().unwrap_or(t.clipboard)
     }
 
     /// Size of the rotated space the frame lives in.

@@ -1,11 +1,12 @@
 //! Reading images from the system clipboard.
 
 use std::ffi::OsString;
-use std::fmt;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 
 use image::RgbaImage;
+
+use crate::i18n::Strings;
 
 pub enum Pasted {
     Image(RgbaImage),
@@ -19,12 +20,12 @@ pub enum PasteError {
     Empty,
 }
 
-impl fmt::Display for PasteError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl PasteError {
+    pub fn message(&self, t: &Strings) -> String {
         match self {
-            Self::Unavailable(e) => write!(f, "Буфер обміну недоступний: {e}"),
-            Self::BadImage => f.write_str("Некоректне зображення в буфері обміну"),
-            Self::Empty => f.write_str("У буфері обміну немає зображення"),
+            Self::Unavailable(e) => (t.clipboard_unavailable)(e),
+            Self::BadImage => t.clipboard_bad_image.into(),
+            Self::Empty => t.clipboard_empty.into(),
         }
     }
 }

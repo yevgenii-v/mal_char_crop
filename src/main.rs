@@ -2,6 +2,7 @@ mod app;
 mod clipboard;
 mod crop;
 mod dialog;
+mod i18n;
 mod imaging;
 mod rotation;
 mod tab;
