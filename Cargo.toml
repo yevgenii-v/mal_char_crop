@@ -1,0 +1,22 @@
+[package]
+name = "mal-char-crop"
+version = "1.0.0"
+edition = "2024"
+
+[dependencies]
+arboard = { version = "3.6.1", default-features = false, features = ["image-data"] }
+eframe = { version = "0.36.2", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }
+image = { version = "0.25.10", default-features = false, features = ["bmp", "dds", "exr", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"] }
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal", "pollster"] }
+winit = { version = "0.30", default-features = false, features = ["x11"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# Keep our code debuggable but decode/resize images at a usable speed.
+[profile.dev.package."*"]
+opt-level = 2
