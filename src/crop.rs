@@ -66,8 +66,10 @@ impl Crop {
         let (iw, ih) = (iw as f32, ih as f32);
         let max = max_w(iw, ih);
         self.w = self.w.clamp((RW as f32).min(max), max);
-        self.x = self.x.clamp(0.0, iw - self.w);
-        self.y = self.y.clamp(0.0, ih - self.h());
+        // `h()` of a height-limited frame can exceed `ih` by a rounding error,
+        // and `f32::clamp` panics when min > max.
+        self.x = self.x.clamp(0.0, (iw - self.w).max(0.0));
+        self.y = self.y.clamp(0.0, (ih - self.h()).max(0.0));
     }
 
     pub fn move_to(&mut self, x: f32, y: f32, iw: u32, ih: u32) {
@@ -186,6 +188,21 @@ mod tests {
         let mut c = Crop { x: 0.0, y: 0.0, w: 10_000.0 };
         c.clamp(500, 1000);
         assert_eq!(c.w, 500.0);
+    }
+
+    #[test]
+    fn clamp_survives_rounding_at_full_height() {
+        // At these heights `ih * ASPECT / ASPECT` rounds up past `ih`.
+        for ih in [27, 404, 1011, 1728] {
+            let iw = ih * 2;
+            let mut c = Crop::fit(iw, ih);
+            c.clamp(iw, ih);
+            c.move_to(0.0, 10.0, iw, ih);
+            c.scale(2.0, iw, ih);
+            assert!(c.y >= 0.0, "{iw}x{ih} {c:?}");
+            let p = c.pixels(iw, ih);
+            assert!(exact(p) && inside(p, iw, ih), "{iw}x{ih} {c:?} -> {p:?}");
+        }
     }
 
     #[test]
