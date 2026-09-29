@@ -3,6 +3,23 @@
 A lightweight desktop tool for quickly preparing character images for MyAnimeList.
 Crop, rotate, position, and save images in the required 9:14 aspect ratio.
 
+## Features
+
+### Cropping
+
+The frame is always locked to 9:14. Drag it to move, drag a corner or scroll the wheel to resize,
+drag outside the frame to draw a new one, or click to centre it there. Middle or right drag pans the view.
+Arrow keys (Shift: ×10) nudge the frame precisely, and a live preview shows the result.
+
+https://github.com/user-attachments/assets/e4f6f92b-e08b-4bc5-8ef5-01f52a67ee07
+
+### Rotation
+
+Straighten tilted images with `[` / `]` (Shift: fine step) or Shift+wheel.
+The frame turns orange when it reaches into an empty corner of the rotated image.
+
+https://github.com/user-attachments/assets/5110ef2d-71ee-4b27-9804-44aafd60492b
+
 ## Download
 
 Prebuilt binaries are published on the [Releases](https://github.com/yevgenii-v/mal_char_crop/releases) page.
