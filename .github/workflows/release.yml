@@ -1,11 +1,17 @@
 name: Release
 
-# Every push to main builds and tests all platforms. A GitHub Release is
-# published only when the version in Cargo.toml has no `v<version>` tag yet,
-# so bump `version` in Cargo.toml to cut a new release.
+# Every push to main (except docs-only ones) builds and tests all platforms.
+# A GitHub Release is published only when the version in Cargo.toml has no
+# `v<version>` tag yet, so bump `version` in Cargo.toml to cut a new release.
 on:
   push:
     branches: [main]
+    # Docs-only pushes don't change the binaries. A push that touches any
+    # other file still runs, so a version bump in Cargo.toml always releases.
+    paths-ignore:
+      - '**.md'
+      - LICENSE
+      - .gitignore
   workflow_dispatch:
 
 concurrency:
